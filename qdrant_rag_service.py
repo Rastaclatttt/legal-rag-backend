@@ -108,48 +108,53 @@ class LegalRAGService:
             self.qdrant_client = None
 
     def _initialize_openai(self):
-        """Initialize OpenAI connection with Railway-compatible settings."""
+        """Initialize OpenAI connection with multiple fallback approaches."""
         self.openai_client = None
 
-        logger.info("🔧 Starting OpenAI initialization with Railway compatibility...")
+        logger.info("🔧 Starting OpenAI initialization with fallback approaches...")
 
-        try:
-            # Official initialization pattern from OpenAI documentation
-            # The client automatically uses OPENAI_API_KEY environment variable
-            from openai import OpenAI
+        # Try multiple initialization patterns
+        approaches = [
+            ("Standard OpenAI()", lambda: OpenAI()),
+            ("OpenAI with explicit key", lambda: OpenAI(api_key=os.getenv('OPENAI_API_KEY'))),
+            ("OpenAI with explicit env", lambda: OpenAI(api_key=os.environ.get("OPENAI_API_KEY")))
+        ]
 
-            # Check if API key is available (though client will handle this)
-            api_key = os.getenv('OPENAI_API_KEY')
-            logger.info(f"🔧 API key environment variable present: {bool(api_key)}")
+        for approach_name, init_func in approaches:
+            try:
+                logger.info(f"🔧 Trying approach: {approach_name}...")
 
-            if not api_key:
-                logger.error("❌ OPENAI_API_KEY environment variable not found")
-                return
+                # Check if API key is available
+                api_key = os.getenv('OPENAI_API_KEY')
+                logger.info(f"🔧 API key environment variable present: {bool(api_key)}")
 
-            # Initialize client with minimal parameters to avoid proxy issues
-            logger.info("🔧 Creating OpenAI client with minimal config...")
-            self.openai_client = OpenAI()
+                if not api_key:
+                    logger.error("❌ OPENAI_API_KEY environment variable not found")
+                    continue
 
-            logger.info("✅ OpenAI client initialized successfully")
-            logger.info(f"🔧 Client type: {type(self.openai_client)}")
+                # Try this initialization approach
+                from openai import OpenAI
+                self.openai_client = init_func()
 
-            # Verify client is working with a simple test
-            # Note: We don't actually call the API here, just verify the client object
-            if hasattr(self.openai_client, 'embeddings') and hasattr(self.openai_client, 'chat'):
-                logger.info("✅ OpenAI client has required methods (embeddings, chat)")
-            else:
-                logger.error("❌ OpenAI client missing expected methods")
+                # Test that it has required methods
+                if hasattr(self.openai_client, 'embeddings') and hasattr(self.openai_client, 'chat'):
+                    logger.info(f"✅ OpenAI client initialized successfully using: {approach_name}")
+                    logger.info(f"🔧 Client type: {type(self.openai_client)}")
+                    return  # Success, exit the loop
+                else:
+                    logger.error(f"❌ OpenAI client missing expected methods with: {approach_name}")
+                    self.openai_client = None
+
+            except Exception as e:
+                logger.error(f"❌ OpenAI initialization failed with {approach_name}: {e}")
                 self.openai_client = None
+                continue
 
-        except ImportError as ie:
-            logger.error(f"❌ Failed to import OpenAI: {ie}")
-            self.openai_client = None
-        except Exception as e:
-            logger.error(f"❌ OpenAI client initialization failed: {e}")
-            logger.error(f"Exception type: {type(e)}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            self.openai_client = None
+        # If all approaches failed
+        if self.openai_client is None:
+            logger.error("❌ All OpenAI initialization approaches failed")
+        else:
+            logger.info("✅ OpenAI client successfully initialized with fallback approach")
 
     def is_connected(self) -> bool:
         """Check if service is properly connected."""

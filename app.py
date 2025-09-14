@@ -149,6 +149,27 @@ async def test_openai_direct():
     except Exception as e:
         return {"error": str(e), "exception_type": str(type(e))}
 
+# Reinit endpoint to fix OpenAI client
+@app.get("/reinit-openai")
+async def reinit_openai():
+    """Reinitialize OpenAI client."""
+    global rag_service
+    if rag_service is None:
+        return {"error": "RAG service not available"}
+
+    try:
+        # Re-initialize OpenAI client
+        rag_service._initialize_openai()
+
+        return {
+            "success": True,
+            "openai_client_exists": rag_service.openai_client is not None,
+            "client_type": str(type(rag_service.openai_client)) if rag_service.openai_client else None,
+            "is_connected": rag_service.is_connected()
+        }
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
+
 # Search endpoint (vector search only)
 @app.post("/search", response_model=SearchResponse)
 async def search_documents(request: SearchRequest):
