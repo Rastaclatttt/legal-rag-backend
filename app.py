@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
 import logging
+import asyncio
 from qdrant_rag_service import LegalRAGService
 
 # Configure logging
@@ -148,6 +149,90 @@ async def test_openai_direct():
         }
     except Exception as e:
         return {"error": str(e), "exception_type": str(type(e))}
+
+# Database population endpoint
+@app.post("/populate-database")
+async def populate_database():
+    """Populate database with sample Nova Scotia statutes."""
+    if rag_service is None:
+        raise HTTPException(status_code=503, detail="RAG service not available")
+
+    if not rag_service.qdrant_client:
+        raise HTTPException(status_code=503, detail="Qdrant client not available")
+
+    try:
+        from qdrant_client.http.models import Distance, VectorParams, PointStruct
+        import uuid
+
+        # Sample Nova Scotia statute data (embedded directly to avoid file issues)
+        sample_data = [
+            {
+                "text": "CHAPTER 9 OF THE REVISED STATUTES, 1989 - AIDS Advisory Commission Act. Short title: This Act may be cited as the AIDS Advisory Commission Act. Purpose: The purpose of this Act is to appoint an advisory body to advise the Government of Nova Scotia on issues related to the acquired immune deficiency syndrome.",
+                "embedding": [0.047, -0.008, 0.029, 0.044] + [0.0] * 1532  # Dummy embedding for testing
+            },
+            {
+                "text": "Accessibility Act - An Act Respecting Accessibility Standards. The purpose of this Act is to establish accessibility standards to address barriers that prevent persons with disabilities from participating fully in society.",
+                "embedding": [0.023, -0.015, 0.041, 0.012] + [0.0] * 1532  # Dummy embedding for testing
+            }
+        ]
+
+        collection_name = "nova_scotia_statutes"
+
+        # Create collection if it doesn't exist
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: rag_service.qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+                )
+            )
+            logger.info(f"Created collection: {collection_name}")
+        except Exception as e:
+            if "already exists" in str(e).lower():
+                logger.info(f"Collection {collection_name} already exists")
+            else:
+                raise e
+
+        # Create points
+        points = []
+        for i, item in enumerate(sample_data):
+            points.append(PointStruct(
+                id=str(uuid.uuid4()),
+                vector=item['embedding'],
+                payload={
+                    'content': item['text'],
+                    'jurisdiction': 'nova_scotia',
+                    'document_type': 'statute',
+                    'title': f'Sample Statute {i+1}'
+                }
+            ))
+
+        # Upload points
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: rag_service.qdrant_client.upsert(
+                collection_name=collection_name,
+                points=points
+            )
+        )
+
+        # Get collection info
+        collection_info = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: rag_service.qdrant_client.get_collection(collection_name)
+        )
+
+        return {
+            "success": True,
+            "message": f"Imported {len(points)} sample statutes",
+            "collection": collection_name,
+            "total_points": collection_info.points_count
+        }
+
+    except Exception as e:
+        logger.error(f"Database population error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Reinit endpoint to fix OpenAI client
 @app.get("/reinit-openai")
