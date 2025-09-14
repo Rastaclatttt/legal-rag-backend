@@ -57,14 +57,7 @@ class LegalRAGService:
                 "federal_other"
             ],
             "nova_scotia": [
-                "ns_administrative",
-                "ns_business_commerce",
-                "ns_criminal_justice",
-                "ns_education",
-                "ns_environmental",
-                "ns_health_social",
-                "ns_municipal",
-                "ns_other"
+                "nova_scotia_statutes"  # Single collection for all NS statutes
             ]
         }
 
