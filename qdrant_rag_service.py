@@ -108,58 +108,28 @@ class LegalRAGService:
             self.qdrant_client = None
 
     def _initialize_openai(self):
-        """Initialize OpenAI connection avoiding Railway proxy conflicts."""
+        """Initialize OpenAI connection using wrapper to avoid Railway proxy conflicts."""
         self.openai_client = None
 
-        logger.info("🔧 Starting OpenAI initialization with proxy workaround...")
+        logger.info("🔧 Starting OpenAI initialization with wrapper...")
 
         try:
-            # Check if API key is available
-            api_key = os.getenv('OPENAI_API_KEY')
-            logger.info(f"🔧 API key environment variable present: {bool(api_key)}")
+            # Import and use our custom wrapper
+            from openai_wrapper import OpenAIWrapper
 
-            if not api_key:
-                logger.error("❌ OPENAI_API_KEY environment variable not found")
-                return
+            logger.info("🔧 Creating OpenAI wrapper to bypass proxy issues...")
+            wrapper = OpenAIWrapper()
 
-            # Railway-specific workaround: Clear any proxy-related environment variables
-            # that might interfere with OpenAI client initialization
-            original_env = {}
-            proxy_vars = ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'proxies']
-
-            for var in proxy_vars:
-                if var in os.environ:
-                    original_env[var] = os.environ[var]
-                    del os.environ[var]
-                    logger.info(f"🔧 Temporarily removed {var} environment variable")
-
-            try:
-                from openai import OpenAI
-                logger.info("🔧 Creating OpenAI client with clean environment...")
-
-                # Initialize with minimal, explicit parameters
-                self.openai_client = OpenAI(
-                    api_key=api_key,
-                    timeout=60.0,  # Explicit timeout
-                    max_retries=2   # Explicit retries
-                )
-
-                # Test that it has required methods
-                if hasattr(self.openai_client, 'embeddings') and hasattr(self.openai_client, 'chat'):
-                    logger.info("✅ OpenAI client initialized successfully with proxy workaround")
-                    logger.info(f"🔧 Client type: {type(self.openai_client)}")
-                else:
-                    logger.error("❌ OpenAI client missing expected methods")
-                    self.openai_client = None
-
-            finally:
-                # Restore original environment variables
-                for var, value in original_env.items():
-                    os.environ[var] = value
-                    logger.info(f"🔧 Restored {var} environment variable")
+            if wrapper.is_initialized():
+                self.openai_client = wrapper
+                logger.info("✅ OpenAI wrapper initialized successfully")
+                logger.info(f"🔧 Wrapper type: {type(self.openai_client)}")
+            else:
+                logger.error("❌ OpenAI wrapper failed to initialize")
+                self.openai_client = None
 
         except Exception as e:
-            logger.error(f"❌ OpenAI initialization failed: {e}")
+            logger.error(f"❌ OpenAI wrapper initialization failed: {e}")
             logger.error(f"Exception type: {type(e)}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
