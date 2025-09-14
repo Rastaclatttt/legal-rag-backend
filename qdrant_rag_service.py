@@ -108,28 +108,102 @@ class LegalRAGService:
             self.qdrant_client = None
 
     def _initialize_openai(self):
-        """Initialize OpenAI connection using wrapper to avoid Railway proxy conflicts."""
+        """Initialize OpenAI connection using direct HTTP client."""
         self.openai_client = None
 
-        logger.info("🔧 Starting OpenAI initialization with wrapper...")
+        logger.info("🔧 Starting OpenAI initialization using direct HTTP approach...")
 
         try:
-            # Import and use our custom wrapper
-            from openai_wrapper import OpenAIWrapper
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                logger.error("❌ OPENAI_API_KEY environment variable not found")
+                return
 
-            logger.info("🔧 Creating OpenAI wrapper to bypass proxy issues...")
-            wrapper = OpenAIWrapper()
+            # Create a minimal HTTP-based OpenAI client to bypass proxy issues
+            logger.info("🔧 Creating HTTP-based OpenAI client...")
 
-            if wrapper.is_initialized():
-                self.openai_client = wrapper
-                logger.info("✅ OpenAI wrapper initialized successfully")
-                logger.info(f"🔧 Wrapper type: {type(self.openai_client)}")
-            else:
-                logger.error("❌ OpenAI wrapper failed to initialize")
-                self.openai_client = None
+            import httpx
+            import json
+
+            class HTTPOpenAIClient:
+                def __init__(self, api_key):
+                    self.api_key = api_key
+                    self.base_url = "https://api.openai.com/v1"
+                    self.headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    }
+
+                    # Create HTTP client with explicit configuration
+                    self.http_client = httpx.Client(
+                        timeout=60.0,
+                        verify=True
+                    )
+
+                    # Create embeddings and chat interfaces
+                    self.embeddings = self.EmbeddingsAPI(self)
+                    self.chat = self.ChatAPI(self)
+
+                def close(self):
+                    self.http_client.close()
+
+                class EmbeddingsAPI:
+                    def __init__(self, client):
+                        self.client = client
+
+                    def create(self, **kwargs):
+                        url = f"{self.client.base_url}/embeddings"
+                        response = self.client.http_client.post(
+                            url,
+                            headers=self.client.headers,
+                            json=kwargs
+                        )
+                        response.raise_for_status()
+                        result = response.json()
+
+                        # Create a simple response object
+                        class EmbeddingResponse:
+                            def __init__(self, data):
+                                self.data = [type('obj', (object,), {'embedding': item['embedding']})() for item in data['data']]
+
+                        return EmbeddingResponse(result)
+
+                class ChatAPI:
+                    def __init__(self, client):
+                        self.client = client
+                        self.completions = self.CompletionsAPI(client)
+
+                    class CompletionsAPI:
+                        def __init__(self, client):
+                            self.client = client
+
+                        def create(self, **kwargs):
+                            url = f"{self.client.base_url}/chat/completions"
+                            response = self.client.http_client.post(
+                                url,
+                                headers=self.client.headers,
+                                json=kwargs
+                            )
+                            response.raise_for_status()
+                            result = response.json()
+
+                            # Create a simple response object
+                            class ChatResponse:
+                                def __init__(self, data):
+                                    self.choices = [type('obj', (object,), {
+                                        'message': type('obj', (object,), {
+                                            'content': choice['message']['content']
+                                        })()
+                                    })() for choice in data['choices']]
+
+                            return ChatResponse(result)
+
+            self.openai_client = HTTPOpenAIClient(api_key)
+            logger.info("✅ HTTP-based OpenAI client initialized successfully")
+            logger.info(f"🔧 Client type: {type(self.openai_client)}")
 
         except Exception as e:
-            logger.error(f"❌ OpenAI wrapper initialization failed: {e}")
+            logger.error(f"❌ HTTP OpenAI client initialization failed: {e}")
             logger.error(f"Exception type: {type(e)}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
