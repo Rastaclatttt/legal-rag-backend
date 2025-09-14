@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Legal RAG API",
     description="Legal Research Assistant Backend with Qdrant Vector Search",
-    version="1.0.0"
+    version="1.0.1"  # Force redeploy
 )
 
 # Configure CORS for Vercel frontend
