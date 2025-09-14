@@ -12,9 +12,18 @@ from dataclasses import dataclass
 
 try:
     from qdrant_client import QdrantClient
-    import openai
-except ImportError:
-    pass
+    QDRANT_AVAILABLE = True
+except ImportError as e:
+    print(f"Qdrant import error: {e}")
+    QDRANT_AVAILABLE = False
+
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError as e:
+    print(f"OpenAI import error: {e}")
+    OPENAI_AVAILABLE = False
+    OpenAI = None
 
 logger = logging.getLogger(__name__)
 
@@ -99,37 +108,47 @@ class LegalRAGService:
             self.qdrant_client = None
 
     def _initialize_openai(self):
-        """Initialize OpenAI connection."""
+        """Initialize OpenAI connection with Railway-compatible settings."""
+        self.openai_client = None
+
+        logger.info("🔧 Starting OpenAI initialization with Railway compatibility...")
+
         try:
+            # Official initialization pattern from OpenAI documentation
+            # The client automatically uses OPENAI_API_KEY environment variable
+            from openai import OpenAI
+
+            # Check if API key is available (though client will handle this)
             api_key = os.getenv('OPENAI_API_KEY')
+            logger.info(f"🔧 API key environment variable present: {bool(api_key)}")
 
             if not api_key:
-                logger.error("OPENAI_API_KEY not found in environment")
+                logger.error("❌ OPENAI_API_KEY environment variable not found")
                 return
 
-            # Initialize OpenAI client with explicit parameters for compatibility
-            try:
-                # Try new OpenAI v1+ client initialization
-                self.openai_client = openai.OpenAI(
-                    api_key=api_key,
-                    timeout=60.0
-                )
-                logger.info("✅ OpenAI initialized (v1+ client)")
-            except TypeError as te:
-                # Fallback for older versions or different initialization
-                logger.warning(f"OpenAI v1+ client failed ({te}), trying alternative initialization")
-                try:
-                    # Alternative initialization without potentially problematic parameters
-                    import openai as openai_module
-                    openai_module.api_key = api_key
-                    self.openai_client = openai_module
-                    logger.info("✅ OpenAI initialized (legacy client)")
-                except Exception as fallback_error:
-                    logger.error(f"All OpenAI initialization methods failed: {fallback_error}")
-                    self.openai_client = None
+            # Initialize client with minimal parameters to avoid proxy issues
+            logger.info("🔧 Creating OpenAI client with minimal config...")
+            self.openai_client = OpenAI()
 
+            logger.info("✅ OpenAI client initialized successfully")
+            logger.info(f"🔧 Client type: {type(self.openai_client)}")
+
+            # Verify client is working with a simple test
+            # Note: We don't actually call the API here, just verify the client object
+            if hasattr(self.openai_client, 'embeddings') and hasattr(self.openai_client, 'chat'):
+                logger.info("✅ OpenAI client has required methods (embeddings, chat)")
+            else:
+                logger.error("❌ OpenAI client missing expected methods")
+                self.openai_client = None
+
+        except ImportError as ie:
+            logger.error(f"❌ Failed to import OpenAI: {ie}")
+            self.openai_client = None
         except Exception as e:
-            logger.error(f"❌ OpenAI initialization failed: {e}")
+            logger.error(f"❌ OpenAI client initialization failed: {e}")
+            logger.error(f"Exception type: {type(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             self.openai_client = None
 
     def is_connected(self) -> bool:
@@ -142,17 +161,17 @@ class LegalRAGService:
             raise Exception("OpenAI client not initialized")
 
         try:
-            # Run in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
+
+            # Use OpenAI v1+ API pattern - following official documentation
+            # Using text-embedding-3-small to match the database embeddings
             response = await loop.run_in_executor(
                 None,
                 lambda: self.openai_client.embeddings.create(
-                    model="text-embedding-ada-002",  # Using ada-002 for consistency with existing data
-                    input=query,
-                    encoding_format="float"
+                    model="text-embedding-3-small",
+                    input=[query]  # input should be a list according to v1+ API
                 )
             )
-
             return response.data[0].embedding
 
         except Exception as e:
@@ -311,6 +330,8 @@ Please provide a comprehensive answer with proper citations to the relevant laws
 
             # Generate response
             loop = asyncio.get_event_loop()
+
+            # Use OpenAI v1+ API pattern - following official documentation
             response = await loop.run_in_executor(
                 None,
                 lambda: self.openai_client.chat.completions.create(
@@ -323,7 +344,6 @@ Please provide a comprehensive answer with proper citations to the relevant laws
                     temperature=0.1
                 )
             )
-
             ai_response = response.choices[0].message.content
 
             # Add disclaimer
@@ -387,7 +407,7 @@ Please provide a comprehensive answer with proper citations to the relevant laws
 
             return {
                 "total_vectors": total_vectors,
-                "dimension": 1536,  # OpenAI ada-002 dimension
+                "dimension": 1536,  # text-embedding-3-small dimension
                 "jurisdictions": jurisdictions,
                 "total_collections": len(collection_stats)
             }

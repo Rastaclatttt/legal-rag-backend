@@ -11,7 +11,6 @@ import logging
 # Pinecone imports
 try:
     import pinecone
-    from pinecone import Pinecone, ServerlessSpec
     PINECONE_AVAILABLE = True
 except ImportError:
     print("Pinecone not available, falling back to local vector store")
@@ -41,24 +40,23 @@ index = None
 
 if PINECONE_AVAILABLE:
     try:
-        pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        # Initialize Pinecone with legacy API
+        pinecone.init(
+            api_key=os.getenv("PINECONE_API_KEY"),
+            environment='us-east-1-aws'
+        )
         index_name = os.getenv("PINECONE_INDEX_NAME", "legal-rag-index")
         
-        # Check if index exists, create if not
-        if index_name not in pc.list_indexes().names():
-            logger.info(f"Creating Pinecone index: {index_name}")
-            pc.create_index(
-                name=index_name,
-                dimension=1536,
-                metric='cosine',
-                spec=ServerlessSpec(
-                    cloud='aws',
-                    region='us-east-1'
-                )
-            )
-        
-        index = pc.Index(index_name)
-        logger.info(f"Connected to Pinecone index: {index_name}")
+        # Check if index exists
+        existing_indexes = pinecone.list_indexes()
+        if index_name not in existing_indexes:
+            logger.warning(f"Pinecone index '{index_name}' not found. Available indexes: {existing_indexes}")
+            logger.info("Falling back to local vector store")
+            PINECONE_AVAILABLE = False
+            index = None
+        else:
+            index = pinecone.Index(index_name)
+            logger.info(f"Connected to Pinecone index: {index_name}")
         
     except Exception as e:
         logger.error(f"Failed to initialize Pinecone: {e}")
@@ -309,4 +307,6 @@ async def rag_endpoint(request: RAGRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    port = int(os.getenv("PORT", 8000))
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
