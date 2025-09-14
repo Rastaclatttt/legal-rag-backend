@@ -261,23 +261,34 @@ async def search_documents(request: SearchRequest):
     """Perform vector search across legal documents."""
     if rag_service is None:
         raise HTTPException(status_code=503, detail="RAG service not available")
-    
+
     try:
         logger.info(f"Search request: {request.query[:50]}...")
-        
+
         results = await rag_service.search(
             query=request.query,
             jurisdictions=request.jurisdictions,
             top_k=request.top_k
         )
-        
+
+        # Convert dataclass results to Pydantic models
+        pydantic_results = []
+        for result in results:
+            pydantic_results.append(SearchResult(
+                content=result.content,
+                metadata=result.metadata,
+                similarity_score=result.similarity_score,
+                jurisdiction=result.jurisdiction,
+                chunk_id=result.chunk_id
+            ))
+
         return SearchResponse(
             query=request.query,
-            results=results,
-            total_results=len(results),
+            results=pydantic_results,
+            total_results=len(pydantic_results),
             jurisdictions_searched=request.jurisdictions
         )
-        
+
     except Exception as e:
         logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -288,17 +299,28 @@ async def rag_query(request: RAGRequest):
     """Perform full RAG query with AI-generated response."""
     if rag_service is None:
         raise HTTPException(status_code=503, detail="RAG service not available")
-    
+
     try:
         logger.info(f"RAG request: {request.query[:50]}...")
-        
+
         # Perform search
         results = await rag_service.search(
             query=request.query,
             jurisdictions=request.jurisdictions,
             top_k=request.top_k
         )
-        
+
+        # Convert dataclass results to Pydantic models
+        pydantic_results = []
+        for result in results:
+            pydantic_results.append(SearchResult(
+                content=result.content,
+                metadata=result.metadata,
+                similarity_score=result.similarity_score,
+                jurisdiction=result.jurisdiction,
+                chunk_id=result.chunk_id
+            ))
+
         # Generate AI response if requested
         ai_response = None
         if request.include_response and results:
@@ -306,15 +328,15 @@ async def rag_query(request: RAGRequest):
                 query=request.query,
                 search_results=results
             )
-        
+
         return RAGResponse(
             query=request.query,
-            results=results,
+            results=pydantic_results,
             ai_response=ai_response,
-            total_results=len(results),
+            total_results=len(pydantic_results),
             jurisdictions_searched=request.jurisdictions
         )
-        
+
     except Exception as e:
         logger.error(f"RAG error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -366,6 +388,8 @@ async def root():
             "rag": "/rag",
             "jurisdictions": "/jurisdictions",
             "stats": "/stats",
+            "populate-database": "/populate-database",
+            "debug": "/debug",
             "docs": "/docs"
         }
     }
