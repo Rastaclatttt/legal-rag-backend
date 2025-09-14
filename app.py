@@ -126,6 +126,29 @@ async def debug_info():
 
     return debug_info
 
+# Test OpenAI directly in endpoint
+@app.get("/test-openai")
+async def test_openai_direct():
+    """Test OpenAI client creation directly in endpoint."""
+    import os
+    try:
+        from openai import OpenAI
+        api_key = os.getenv('OPENAI_API_KEY')
+
+        if not api_key:
+            return {"error": "No API key found", "api_key_present": False}
+
+        client = OpenAI()
+        return {
+            "success": True,
+            "client_type": str(type(client)),
+            "api_key_present": True,
+            "has_embeddings": hasattr(client, 'embeddings'),
+            "has_chat": hasattr(client, 'chat')
+        }
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
+
 # Search endpoint (vector search only)
 @app.post("/search", response_model=SearchResponse)
 async def search_documents(request: SearchRequest):
