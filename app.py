@@ -39,10 +39,20 @@ app.add_middleware(
 
 # Initialize RAG service
 try:
+    logger.info("🔧 Starting RAG service initialization...")
     rag_service = LegalRAGService()
     logger.info("✅ RAG service initialized successfully")
+
+    # Debug logging
+    if rag_service:
+        logger.info(f"🔧 Qdrant client exists: {rag_service.qdrant_client is not None}")
+        logger.info(f"🔧 OpenAI client exists: {rag_service.openai_client is not None}")
+        if rag_service.openai_client:
+            logger.info(f"🔧 OpenAI client type: {type(rag_service.openai_client)}")
 except Exception as e:
     logger.error(f"❌ Failed to initialize RAG service: {e}")
+    import traceback
+    logger.error(f"❌ Traceback: {traceback.format_exc()}")
     rag_service = None
 
 # Request/Response models
